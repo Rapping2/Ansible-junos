@@ -1,2 +1,2 @@
 # Ansible-junos
-Ansable Project for maintenance of Junos equipment.
+Ansible Project for maintenance of Junos equipment.
