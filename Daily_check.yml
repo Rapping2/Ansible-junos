@@ -1,13 +1,10 @@
 ---
 - name: Juniper switch check
-  hosts: juniper
+  hosts: Juniper
   roles:
     - Juniper.junos
   connection: local
   gather_facts: no
-
-  vars:
-    val : int()
 
   tasks:
     - name: Make Config Backup Directory
@@ -23,62 +20,103 @@
           - "show chassis routing-engine"
           - "show chassis environment"
           - "show system alarm"
-          - "show system uptime"
-          - "show ntp status"
+          - "show interfaces extensive"
+          - "show log messages"
         dest: "Backup/{{ lookup('pipe', 'date +%Y%m%d') }}/{{ inventory_hostname}}.txt"
 
-    - name: read file0
-      shell: 'cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep "Current time"'
-      register: HOST_MGMT0
-
     - name: Read file1
-      shell: "cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt"
-      register: HOST_MGMT1
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt
+      register: TMP1
 
     - name: Alarm check
-      debug: msg="{% if 'No alarms currently active' in HOST_MGMT1.stdout %}  ALM state OK {% else %}  ALM state check {% endif %}"
-      register: result_alarm
+      debug: msg="{% if 'No alarms currently active' in TMP1.stdout %}Good{% else %}ALM check{% endif %}"
+      register: alarm
       ignore_errors: True
-
-    - name: NTP check
-      debug: msg="{% if 'sync_ntp' in HOST_MGMT1.stdout %}  NTP state OK {% else %}  NTP state check {% endif %}"
-      register: result_ntp
 
     - name: read file2
-      shell: 'cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep FPC'
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt
       ignore_errors: True
-      register: HOST_MGMT3
+      register: TMP2
 
-    - name: ENV check
-      debug: msg="{% if '("Absent" or "Present" or "Failed" or "Check")' in HOST_MGMT3.stdout %}  ENV state check {% else %}  ENV state OK {% endif %}"
+    - name: Module check
+      debug: msg="{% if 'Check' in TMP2.stdout %}Module check{% elif 'Absent' in TMP2.stdout %}Module check{% elif 'Present' in TMP2.stdout %}Module check{% else %}Good{% endif %}"
       ignore_errors: True
-      register: result_env
-
-    - name: read file2-2
-      shell: 'cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Fan'
-      ignore_errors: True
-      register: HOST_MGMT5
-
-    - name: FAN check
-      debug: msg="{% if 'Spinning at normal speed' in HOST_MGMT5.stdout %}  FAN state OK {% else %}  FAN state check {% endif %}"
-      ignore_errors: True
-      register: result_fan
+      register: module
 
     - name: read file3
-      shell: 'cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep "Memory"'
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Power
       ignore_errors: True
-      register: HOST_MGMT4
+      register: TMP3
+
+    - name: Power check
+      debug: msg="{% if 'Check' in TMP3.stdout %}Power check{% elif 'Absent' in TMP3.stdout %}Power check{% elif 'Present' in TMP3.stdout %}Power check{% else %}Good{% endif %}"
+      ignore_errors: True
+      register: power
+
+    - name: read file2_2
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Fan
+      ignore_errors: True
+      register: TMP3
+
+    - name: FAN check
+      debug: msg="{% if 'Spinning at normal speed' in TMP3.stdout %}Good{% else %}FAN check{% endif %}"
+      ignore_errors: True
+      register: fan
 
     - name: Memory check
-      debug: msg="{% if '{{ val }} percent' in HOST_MGMT4.stdout %}  MEM state OK {% else %}  MEM state check {% endif %}"
-      when: 'val |int() < 60'
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Memory | awk '{print $3"%"; exit}'
       ignore_errors: True
-      register: result_memory
+      register: memory
 
-    - name: read file4
-      shell: 'cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep "Idle"'
+    - name: CPU check
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Idle | awk '{print 100 - $2"%"; exit}'
       ignore_errors: True
-      register: HOST_MGMT5
+      register: cpu
+
+#    - name: CPU check
+#      debug: msg="{% if HOST_MGMT5.stdout | regex_search('\d+') | int > 90 %}Good{% else %}CPU check{% endif %}"
+#      ignore_errors: True
+#      register: cpu
+
+    - name: Port check
+      shell: cat Backup/$(date +%Y%m%d)/{{ inventory_hostname }}.txt | grep Framing | awk '$2 > 100 {print "Port check"}'
+      ignore_errors: True
+      register: port
+
+#    - name: Port check
+#      debug: msg="{% if TMP4.stdout | regex_search('\d+') | int == 0 %}OK{% else %}Interface check{% endif %}"
+#      ignore_errors: True
+#      register: port
+
+#    - name: Port check
+#      debug: msg="{% if TMP4.stdout.find('\d+') | int < 100 %}OK{% else %}Interface check{% endif %}"
+#      ignore_errors: True
+#      register: port
+
+    - name: Gather_fact1
+      junos_get_facts:
+      register: junos
+
+    - name: Print fact1
+      debug: msg="{{junos.facts.hostname}}"
+      register: hostname
+
+    - name: Print fact2
+      debug: msg="{{junos.facts.model}}"
+      register: model
+
+    - name: Print fact3
+      debug: msg="{{junos.facts.serialnumber}}"
+      register: serial
+
+    - name: Print fact4
+      debug: msg="{{junos.facts.version}}"
+      register: version
+
+    - name: Log check
+      debug: msg="{% if 'crash' in TMP1.stdout %}Log check{% elif 'license' in TMP1.stdout %}License check{% else %}None{% endif %}"
+      register: log
+      ignore_errors: True
 
     - name: Make Result Directory
       local_action:
@@ -89,7 +127,7 @@
 
     - name: Result summary
       local_action:
-        copy content="##########_{{ inventory_hostname }}_##########\n{{ HOST_MGMT0.stdout }}\n{{result_alarm}}\n{{ result_ntp }}\n{{ result_env }}\n{{ result_fan }}\n{{ result_memory }}\n\n"
+        copy content="{{hostname}}|{{inventory_hostname}}|{{model}}|{{serial}}|{{memory.stdout}}|{{cpu.stdout}}|{{module}}|{{power}}|{{fan}}|{{port.stdout}}|{{version}}|{{log}}|{{alarm}}\n"
         dest="Result/{{ lookup('pipe', 'date +%Y%m%d') }}/{{ inventory_hostname }}.txt"
 
     - name: Assemble from fragments from a directory
@@ -121,3 +159,21 @@
         path: "Result/{{ lookup('pipe', 'date +%Y%m%d') }}_Result_summary.txt"
         regexp: "',"
         replace: ""
+
+    - name: Result modify4
+      replace:
+        path: "Result/{{ lookup('pipe', 'date +%Y%m%d') }}_Result_summary.txt"
+        regexp: "{"
+        replace: ""
+
+    - name: Result modify4
+      replace:
+        path: "Result/{{ lookup('pipe', 'date +%Y%m%d') }}_Result_summary.txt"
+        regexp: "}"
+        replace: ""
+
+    - name: Read users from CSV file and return a list
+      copy:
+        src: "Result/{{ lookup('pipe', 'date +%Y%m%d') }}_Result_summary.txt"
+        remote_src: yes
+        dest: "Result/ResultSUM.csv"
